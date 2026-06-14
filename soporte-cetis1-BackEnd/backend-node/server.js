@@ -233,9 +233,77 @@ app.get('/api/usuarios', async (req, res) => {
   }
 });
 
-// ═══════════════════════════════════════════════════════════════
-// INICIO
-// ═══════════════════════════════════════════════════════════════
+// POST /api/usuarios  –  crear nuevo usuario (solo admin)
+app.post('/api/usuarios', async (req, res) => {
+  const { nombre, email, password, rol, area } = req.body;
+
+  if (!nombre || !email || !password || !rol)
+    return res.status(400).json({ error: 'Nombre, email, contraseña y rol son requeridos' });
+
+  if (password.length < 6)
+    return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+
+  try {
+    // Verificar que el email no exista ya
+    const [existe] = await db.query('SELECT id FROM usuarios WHERE email = ?', [email]);
+    if (existe.length > 0)
+      return res.status(400).json({ error: 'Ya existe un usuario con ese correo' });
+
+    const hash = bcrypt.hashSync(password, 10);
+
+    const [result] = await db.query(
+      'INSERT INTO usuarios (nombre, email, password, rol, area) VALUES (?, ?, ?, ?, ?)',
+      [nombre.trim(), email.trim().toLowerCase(), hash, rol, area ?? '']
+    );
+
+    res.status(201).json({ ok: true, id: result.insertId, nombre, email, rol });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/usuarios/:id  –  editar usuario
+app.put('/api/usuarios/:id', async (req, res) => {
+  const { nombre, email, password, rol, area } = req.body;
+  const id = req.params.id;
+
+  if (!nombre || !email || !rol)
+    return res.status(400).json({ error: 'Nombre, email y rol son requeridos' });
+
+  try {
+    const [existe] = await db.query(
+      'SELECT id FROM usuarios WHERE email = ? AND id != ?', [email, id]
+    );
+    if (existe.length > 0)
+      return res.status(400).json({ error: 'Ya existe otro usuario con ese correo' });
+
+    if (password) {
+      const hash = bcrypt.hashSync(password, 10);
+      await db.query(
+        'UPDATE usuarios SET nombre=?, email=?, password=?, rol=?, area=? WHERE id=?',
+        [nombre.trim(), email.trim().toLowerCase(), hash, rol, area ?? '', id]
+      );
+    } else {
+      await db.query(
+        'UPDATE usuarios SET nombre=?, email=?, rol=?, area=? WHERE id=?',
+        [nombre.trim(), email.trim().toLowerCase(), rol, area ?? '', id]
+      );
+    }
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// DELETE /api/usuarios/:id  –  desactivar usuario
+app.delete('/api/usuarios/:id', async (req, res) => {
+  try {
+    await db.query('UPDATE usuarios SET activo = 0 WHERE id = ?', [req.params.id]);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
 app.listen(PORT, () => {
   console.log(`✅ SoporteCETIS API corriendo en http://localhost:${PORT}`);
   console.log(`   Prueba: http://localhost:${PORT}/api/tickets`);
